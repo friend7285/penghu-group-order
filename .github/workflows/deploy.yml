@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+        env:
+          VITE_ORDER_UPLOAD_ENDPOINT: ${{ secrets.VITE_ORDER_UPLOAD_ENDPOINT }}
       - name: Setup Pages
         uses: actions/configure-pages@v5
         with:

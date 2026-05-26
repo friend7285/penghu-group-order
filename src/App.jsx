@@ -157,18 +157,21 @@ function buildTextSummary(form, ordered, normalTotal, frozenTotal, orderId) {
 }
 
 function buildDBRow(form, ordered, normalTotal, frozenTotal, orderId) {
+  return buildDBCells(form, ordered, normalTotal, frozenTotal, orderId).map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",");
+}
+
+function buildDBCells(form, ordered, normalTotal, frozenTotal, orderId) {
   const total = normalTotal + frozenTotal;
   const shipDate = getShipDate(form);
   const dLabel = { home: "宅配", airport: "機場取貨", dock: "碼頭取貨" }[form.delivery] || "";
   const location = form.delivery === "home" ? form.addr : form.delivery === "airport" ? "機場自取" : "碼頭自取";
   const itemsStr = ordered.map((o) => `${o.name}×${o.qty}`).join("、");
   const now = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
-  return [orderId, now, form.name, form.phone, dLabel, location, shipDate, normalTotal, frozenTotal, total, normalTotal >= 2500 ? "免運" : `差$${2500 - normalTotal}`, itemsStr, form.note || ""]
-    .map((c) => `"${String(c).replace(/"/g, '""')}"`)
-    .join(",");
+  return [orderId, now, form.name, form.phone, dLabel, location, shipDate, normalTotal, frozenTotal, total, normalTotal >= 2500 ? "免運" : `差$${2500 - normalTotal}`, itemsStr, form.note || ""];
 }
 
-const DB_HEADER = ["訂單編號", "建立時間", "訂購人", "電話", "取貨方式", "收件位置", "出貨日", "常溫小計", "冷凍小計", "總金額", "常溫運費狀態", "商品明細", "備註"].map((c) => `"${c}"`).join(",");
+const DB_HEADER_CELLS = ["訂單編號", "建立時間", "訂購人", "電話", "取貨方式", "收件位置", "出貨日", "常溫小計", "冷凍小計", "總金額", "常溫運費狀態", "商品明細", "備註"];
+const DB_HEADER = DB_HEADER_CELLS.map((c) => `"${c}"`).join(",");
 
 function downloadCsv(orderId, dbRow) {
   const blob = new Blob([`\ufeff${DB_HEADER}\n${dbRow}\n`], { type: "text/csv;charset=utf-8" });
@@ -245,24 +248,30 @@ export default function App() {
     setUploading(true);
     setError("");
     const dbRow = buildDBRow(form, ordered, normalTotal, frozenTotal, orderId);
+    const dbCells = buildDBCells(form, ordered, normalTotal, frozenTotal, orderId);
 
     try {
       if (!UPLOAD_ENDPOINT) {
         downloadCsv(orderId, dbRow);
-        setUploadResult(`已下載訂單 CSV：訂單-${orderId}.csv。若要自動寫入 Google Drive，請設定後端 API。`);
+        setUploadResult(`已下載訂單 CSV：訂單-${orderId}.csv。若要自動寫入 Google Drive，請設定 Apps Script Web App URL。`);
         setStep("done");
         return;
       }
 
-      const res = await fetch(UPLOAD_ENDPOINT, {
+      await fetch(UPLOAD_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, row: dbRow, header: DB_HEADER }),
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          orderId,
+          row: dbRow,
+          cells: dbCells,
+          header: DB_HEADER,
+          headerCells: DB_HEADER_CELLS,
+        }),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json().catch(() => ({}));
-      setUploadResult(data.message || `成功新增訂單編號：${orderId}`);
+      setUploadResult(`已送出並寫入 Google Drive 訂單總表：${orderId}`);
       setStep("done");
     } catch (e) {
       setError(`儲存失敗：${e.message}`);
@@ -346,7 +355,7 @@ export default function App() {
             {error && <div style={{ background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "10px 14px", color: "#DC2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
             {step === "confirm" && (
               <button onClick={handleUpload} disabled={uploading} style={{ background: C.teal, color: "white", border: "none", borderRadius: 8, padding: "13px 24px", fontSize: 15, fontWeight: 700, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.7 : 1, width: "100%", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {uploading ? "⏳ 儲存中..." : UPLOAD_ENDPOINT ? "☁️ 確認並儲存到雲端總表" : "⬇️ 下載訂單 CSV"}
+                {uploading ? "⏳ 儲存中..." : UPLOAD_ENDPOINT ? "☁️ 確認並寫入 Google Drive 總表" : "⬇️ 下載訂單 CSV"}
               </button>
             )}
           </div>
