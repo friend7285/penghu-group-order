@@ -191,6 +191,7 @@ export default function App() {
   const [step, setStep] = useState("form");
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
+  const [uploaded, setUploaded] = useState(false);
   const [textSummary, setTextSummary] = useState("");
   const [orderId, setOrderId] = useState("");
   const [copied, setCopied] = useState(false);
@@ -244,47 +245,51 @@ export default function App() {
     setStep("confirm");
   };
 
-  const handleUpload = async () => {
-    setUploading(true);
-    setError("");
+  const uploadOrder = async () => {
+    if (uploaded) return;
+
     const dbRow = buildDBRow(form, ordered, normalTotal, frozenTotal, orderId);
     const dbCells = buildDBCells(form, ordered, normalTotal, frozenTotal, orderId);
 
+    if (!UPLOAD_ENDPOINT) {
+      downloadCsv(orderId, dbRow);
+      setUploadResult(`已下載訂單 CSV：訂單-${orderId}.csv。若要自動寫入 Google Drive，請設定 Apps Script Web App URL。`);
+      setUploaded(true);
+      return;
+    }
+
+    await fetch(UPLOAD_ENDPOINT, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        orderId,
+        row: dbRow,
+        cells: dbCells,
+        header: DB_HEADER,
+        headerCells: DB_HEADER_CELLS,
+      }),
+    });
+
+    setUploaded(true);
+    setUploadResult(`已自動寫入 Google Drive 訂單總表：${orderId}`);
+  };
+
+  const handleCopy = async () => {
+    setUploading(true);
+    setError("");
+
     try {
-      if (!UPLOAD_ENDPOINT) {
-        downloadCsv(orderId, dbRow);
-        setUploadResult(`已下載訂單 CSV：訂單-${orderId}.csv。若要自動寫入 Google Drive，請設定 Apps Script Web App URL。`);
-        setStep("done");
-        return;
-      }
-
-      await fetch(UPLOAD_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({
-          orderId,
-          row: dbRow,
-          cells: dbCells,
-          header: DB_HEADER,
-          headerCells: DB_HEADER_CELLS,
-        }),
-      });
-
-      setUploadResult(`已送出並寫入 Google Drive 訂單總表：${orderId}`);
+      await navigator.clipboard.writeText(textSummary);
+      await uploadOrder();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
       setStep("done");
     } catch (e) {
-      setError(`儲存失敗：${e.message}`);
+      setError(`複製或寫入失敗：${e.message}`);
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(textSummary).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    });
   };
 
   const resetForm = () => {
@@ -292,6 +297,7 @@ export default function App() {
     setForm({ name: "", phone: "", delivery: "", addr: "", arrivalDate: "", deliveryTime: "", note: "" });
     setStep("form");
     setUploadResult(null);
+    setUploaded(false);
     setTextSummary("");
     setOrderId("");
     setError("");
@@ -349,27 +355,15 @@ export default function App() {
           <div style={card}>
             <div style={cardTitle}>
               <span style={accent} />
-              ☁️ 儲存訂單資料
-            </div>
-            {step === "done" && uploadResult && <div style={{ background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, padding: "14px 16px", color: "#065F46", fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>✅ {uploadResult}</div>}
-            {error && <div style={{ background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "10px 14px", color: "#DC2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
-            {step === "confirm" && (
-              <button onClick={handleUpload} disabled={uploading} style={{ background: C.teal, color: "white", border: "none", borderRadius: 8, padding: "13px 24px", fontSize: 15, fontWeight: 700, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.7 : 1, width: "100%", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {uploading ? "⏳ 儲存中..." : UPLOAD_ENDPOINT ? "☁️ 確認並寫入 Google Drive 總表" : "⬇️ 下載訂單 CSV"}
-              </button>
-            )}
-          </div>
-
-          <div style={card}>
-            <div style={cardTitle}>
-              <span style={accent} />
               📋 複製訂單給店家
             </div>
+            {uploadResult && <div style={{ background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, padding: "12px 14px", color: "#065F46", fontSize: 13, marginBottom: 14, lineHeight: 1.6 }}>✅ {uploadResult}</div>}
+            {error && <div style={{ background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "10px 14px", color: "#DC2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
             <textarea readOnly value={textSummary} style={{ background: C.dark, color: "#FFF3D6", borderRadius: 8, padding: 20, fontFamily: "'Courier New',Courier,monospace", fontSize: 13, lineHeight: 1.85, whiteSpace: "pre", marginBottom: 14, border: "none", width: "100%", boxSizing: "border-box", resize: "none", minHeight: 380 }} />
-            <button onClick={handleCopy} style={{ background: copied ? "#059669" : `linear-gradient(135deg,${C.amber} 0%,${C.amberD} 100%)`, color: copied ? "white" : C.dark, border: "none", borderRadius: 8, padding: "14px 28px", fontSize: 16, fontWeight: 700, cursor: "pointer", width: "100%", fontFamily: "inherit", transition: "background 0.25s", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, letterSpacing: 1 }}>
-              {copied ? "✅ 已複製！" : "📋 一鍵複製訂單文字"}
+            <button onClick={handleCopy} disabled={uploading} style={{ background: copied || uploaded ? "#059669" : `linear-gradient(135deg,${C.amber} 0%,${C.amberD} 100%)`, color: copied || uploaded ? "white" : C.dark, border: "none", borderRadius: 8, padding: "14px 28px", fontSize: 16, fontWeight: 700, cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.75 : 1, width: "100%", fontFamily: "inherit", transition: "background 0.25s", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, letterSpacing: 1 }}>
+              {uploading ? "⏳ 複製並寫入中..." : uploaded ? "✅ 已複製並寫入 Google Drive" : "📋 一鍵複製訂單文字"}
             </button>
-            <div style={{ fontSize: 12, color: C.soft, textAlign: "center", marginTop: 8 }}>複製後貼到 LINE / 訊息傳給店家</div>
+            <div style={{ fontSize: 12, color: C.soft, textAlign: "center", marginTop: 8 }}>按下後會複製文字，並自動寫入 Google Drive 訂單總表</div>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
